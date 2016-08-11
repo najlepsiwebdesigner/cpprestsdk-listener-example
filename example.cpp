@@ -10,6 +10,7 @@
 #include <thread>
 #include <chrono>
 #include <ctime>
+#include <boost/format.hpp>
 
 using namespace utility;                    // Common utilities like string conversions
 using namespace web;                        // Common features like URIs.
@@ -19,91 +20,64 @@ using namespace concurrency::streams;       // Asynchronous streams
 using namespace web::http::experimental::listener;
 using namespace std;
 
-// cpprest provides macros for all streams but std::clog in basic_types.h
-#ifdef _UTF16_STRINGS
-// On Windows, all strings are wide
-#define uclog std::wclog
-#else
-// On POSIX platforms, all strings are narrow
-#define uclog std::clog
-#endif // endif _UTF16_STRINGS
+std::string read_file(std::string filename) {
+	ifstream inFile;
+	inFile.open(filename);
 
+	std::stringstream strStream;
+	strStream << inFile.rdbuf();
+	string str = strStream.str();
+	return str;
+}
+
+boost::format get_template(std::string filename) {
+	std::string content = read_file(filename);
+	boost::format con = boost::format(content);
+	return con;
+}
 
 int main(int argc, char* argv[])
 {
-    
-/*
-auto fileStream = std::make_shared<ostream>();
+	http_listener listener("http://localhost:12345");
 
-    // Open stream to output file.
-    pplx::task<void> requestTask = fstream::open_ostream(U("results.html")).then([=](ostream outFile)
-    {
-        *fileStream = outFile;
+	int count = 0;
 
-        // Create http_client to send the request.
-        http_client client(U("http://www.bing.com/"));
+	listener.support(methods::GET, [count] (http_request request) mutable {
+		std::cout << "GET "<< request.request_uri().to_string() << std::endl;
 
-        // Build request URI and start the request.
-        uri_builder builder(U("/search"));
-        builder.append_query(U("q"), U("cpprestsdk github"));
-        return client.request(methods::GET, builder.to_string());
-    })
+		// tu si ziskam get parametre
+		auto http_get_vars = uri::split_query(request.request_uri().query());
 
-    // Handle response headers arriving.
-    .then([=](http_response response)
-    {
-        printf("Received response status code:%u\n", response.status_code());
+		// takto sa parsuju parametre	
+		auto param_end = http_get_vars.find("end");
+		if (param_end != end(http_get_vars)) {
+			auto request_name = param_end->second;
+			std::cout << "Received \"end\": " << request_name << endl;
+		}
 
-        // Write response body into the file.
-        return response.body().read_to_end(fileStream->streambuf());
-    })
-
-    // Close the file stream.
-    .then([=](size_t)
-    {
-        return fileStream->close();
-    });
-
-    // Wait for all the outstanding I/O to complete and handle any exceptions
-    try
-    {
-        requestTask.wait();
-    }
-    catch (const std::exception &e)
-    {
-        printf("Error exception:%s\n", e.what());
-    }
-
-*/
-
-    http_listener listener(U("http://localhost:1234"));
+		auto param_start = http_get_vars.find(U("start"));
+		if (param_start != end(http_get_vars)) {
+			auto request_name = param_start->second;
+			std::cout << "Received \"start\": " << request_name << endl;
+		}
 
 
-listener.support(methods::GET, [] (http_request request) 
-    {
-	std::cout << "GET REQUEST" << std::endl;
-        request.reply(status_codes::OK, U("Hello, World!"));
-    });	
+		boost::format tpl = get_template("index.html");
+		tpl % "Page rendered: " % count;
+		count++;
 
+		request.reply(status_codes::OK, U(boost::str(tpl)),U("text/html"));
+	});	
 
- listener.open().wait();
-
-	std::cout<<"LISTENER STARTED" << std::endl;
-
-
-
-
-
-// Wait while the listener does the heavy lifting.
-	// TODO: Provide a way to safely terminate this loop.
-	uclog << U("Waiting for incoming connection...") << endl;
+	listener.open().wait();
+	std::cout << "Web server started on: " << listener.uri().to_string() << std::endl;
+	
 	while(true) {
 		this_thread::sleep_for(chrono::milliseconds(2000));
 	}
 
-	// Nothing left to do but commit suicide.
-	uclog << U("Terminating JSON listener.") << endl;
+	std::cout << "Terminating JSON listener." << endl;
 	listener.close().wait();
 
-    //return 0;
+    return 0;
 }
